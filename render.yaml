@@ -1,0 +1,25 @@
+# Configuração de deploy no Render (render.com) como "Blueprint".
+# O banco é um arquivo JSON: por isso o serviço usa um disco persistente montado em /var/data.
+# Discos exigem plano pago (Starter). O e-mail de administrador é definido no painel (sync: false).
+services:
+  - type: web
+    name: marginalia
+    runtime: node
+    plan: starter
+    region: virginia
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: COOKIE_SECURE
+        value: "1"
+      - key: MARGINALIA_DB
+        value: /var/data/db.json
+      - key: MARGINALIA_ADMINS
+        sync: false
+    disk:
+      name: dados
+      mountPath: /var/data
+      sizeGB: 1

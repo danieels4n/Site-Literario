@@ -1,0 +1,11 @@
+node_modules/
+data/
+.taste-skill/
+# Ferramentas locais de desenvolvimento (não fazem parte do site)
+.agents/
+.claude/
+skills-lock.json
+# Originais das imagens (o site usa as versões otimizadas de public/img); os créditos vão junto
+assets/*
+!assets/credits.json
+*.tmp
