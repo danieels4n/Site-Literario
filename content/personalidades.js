@@ -286,10 +286,10 @@ export const personalidadesSemente = [
       'Historiador nascido em Recife, ficou conhecido por vídeos, textos e cursos de formação política com base no marxismo. Escreveu e organizou livros sobre marxismo, colonialismo e questão racial. Em 2026 foi eleito deputado federal por Pernambuco, pelo PSOL.',
     eixos: ['historia', 'marxismo', 'politica', 'formacao-teorica'],
     retrato: {
-      img: '/img/jones-manoel-2022.jpg', w: 462, h: 656, pos: '50% 30%',
-      alt: 'Retrato de Jones Manoel, de camiseta preta, diante de uma parede com xilogravuras, em 2022',
-      credito: 'Partido Comunista Brasileiro (PCB)', licenca: 'reprodução permitida com citação da fonte',
-      url: 'https://commons.wikimedia.org/wiki/File:Jones_Manoel.jpg',
+      img: '/img/jones-manoel-livros.webp', w: 1400, h: 1050, pos: '36% 30%',
+      alt: 'Jones Manoel, de óculos e camiseta preta, apoia a cabeça na mão ao lado de uma pilha de livros, entre eles A negação do negro no Brasil, Malcolm X fala e Por uma revolução africana',
+      // Foto enviada pela equipe; autoria ainda não identificada (completar quando souber).
+      credito: 'autoria a confirmar', licenca: 'imagem fornecida à Marginália', via: 'acervo da Marginália', url: '',
     },
     ligacoes: [],
     referencias: [

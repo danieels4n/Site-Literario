@@ -86,7 +86,8 @@ export function itemLivro(livro, { estado, destaque = false, nivelTitulo = 'h3',
     </a>
     <p class="item__autor">${nomesAutores(livro)}</p>
     <p class="item__meta"><span>${livro.ano}</span> <span>${NIVEIS[livro.nivel]}</span></p>
-    ${destaque ? html`<p class="item__linha">${livro.linha}</p>` : ''}
+    ${destaque ? html`<p class="item__linha">${livro.linha}</p>` : html`<p class="item__linha item__linha--compacta">${livro.linha}</p>`}
+    ${livro.gratis ? html`<p class="item__gratis">Leitura grátis</p>` : ''}
     ${estado?.asterisco ? html`<span class="item__ast" title="Marcado com asterisco"><span class="ast" aria-hidden="true">*</span><span class="sr">Marcado com asterisco</span></span>` : ''}
     ${estado?.status ? html`<p class="item__status">${STATUS[estado.status]}${estado.status === 'lendo' ? html` · ${estado.progresso}%` : ''}</p>` : ''}
   </article>`;

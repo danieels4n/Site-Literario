@@ -73,6 +73,10 @@ export function livroPagina({ livro, usuario, estado, quemLe = '' }) {
       <p class="livro__linha">${livro.linha}</p>
       ${ficha(livro)}
       ${livro.gratis ? html`<p class="livro__gratis"><span class="ast" aria-hidden="true">*</span> Domínio público: <a href="${livro.gratis.url}" rel="noopener">ler grátis no ${livro.gratis.fonte}</a> ou <a href="#acesso-titulo">ver onde encontrar em papel</a>.</p>` : ''}
+      <div class="livro__acesso-celular">
+        ${livro.gratis ? html`<a class="botao" href="${livro.gratis.url}" rel="noopener">Ler grátis (domínio público)</a>` : ''}
+        <a class="botao botao--contorno" href="#acesso-titulo">${livro.gratis ? 'Ver outras opções de acesso' : 'Onde encontrar este livro'}</a>
+      </div>
       ${acoesLeitura(livro, usuario, estado)}
     </div>
   </header>

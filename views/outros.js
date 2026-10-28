@@ -41,8 +41,8 @@ export function creditos(caminhoCreditos, retratos = []) {
       </li>`)}
       ${retratos.map((p) => html`<li>
         <span class="creditos__titulo">Retrato de ${p.nome}, por ${p.retrato.credito}</span>
-        <span class="creditos__licenca">${p.retrato.licenca} · via Wikimedia Commons</span>
-        <a href="${p.retrato.url}" rel="noopener">Ver na fonte<span class="sr"> (retrato de ${p.nome})</span></a>
+        <span class="creditos__licenca">${p.retrato.licenca} · via ${p.retrato.via || 'Wikimedia Commons'}</span>
+        ${p.retrato.url ? html`<a href="${p.retrato.url}" rel="noopener">Ver na fonte<span class="sr"> (retrato de ${p.nome})</span></a>` : ''}
       </li>`)}
     </ol>
   </section>`;

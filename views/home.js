@@ -1,15 +1,113 @@
-import { html } from '../lib/html.js';
-import { livros, trilhas, conceitos, autores, livroPorSlug, autorPorSlug, conceitoPorSlug, fotos, NIVEIS } from '../content/catalog.js';
+import { html, raw } from '../lib/html.js';
+import { livros, trilhas, conceitos, autores, livroPorSlug, autorPorSlug, conceitoPorSlug, trilhaPorSlug, fotos, NIVEIS, faixaNivel } from '../content/catalog.js';
 import { capa, foto, nomesAutores } from './parts.js';
+import { retrato } from './personalidades.js';
 
 const NA_MESA = ['vidas-secas', 'quarto-de-despejo', 'os-sertoes', 'pedagogia-do-oprimido', 'ursula', 'triste-fim-de-policarpo-quaresma', 'esau-e-jaco'];
 const CONCEITOS_CAPA = ['homem-cordial', 'escrevivencia', 'educacao-bancaria', 'mito-da-democracia-racial', 'subdesenvolvimento', 'patrimonialismo', 'literatura-de-testemunho', 'luta-de-classes'];
 
-export function home({ inspira = '' } = {}) {
+// Carrossel editorial (só no celular; no desktop fica oculto e as imagens das lâminas 2–5 não carregam).
+function carrossel(pessoas) {
+  const trilha = trilhaPorSlug.get('vozes-da-margem');
+  // Na lâmina, só quem tem retrato licenciado, na ordem escolhida pela curadoria.
+  const comFoto = ['emicida', 'jones-manoel', 'erika-hilton'].map((s) => pessoas.find((p) => p.slug === s)).filter((p) => p?.retrato);
+  const capasOriginais = livros.filter((l) => l.capa?.img).slice(0, 4);
+  const gratis = livros.filter((l) => l.gratis);
+  const laminas = [
+    {
+      nome: 'Apresentação', classe: 'lamina--foto',
+      corpo: html`<img class="lamina__fundo" src="${fotos.carolinaAssinando.img}" width="${fotos.carolinaAssinando.w}" height="${fotos.carolinaAssinando.h}" alt="${fotos.carolinaAssinando.alt}" decoding="async">
+        <p class="lamina__legenda">${fotos.carolinaAssinando.legenda}</p>
+        <div class="lamina__texto">
+          <p class="lamina__chapeu">Biblioteca de formação crítica</p>
+          <h1 class="lamina__titulo lamina__titulo--grande">Toda leitura deixa marcas<span class="ast">.</span></h1>
+          <p class="lamina__resumo">Literatura revolucionária, pensamento crítico e cultura para transformar realidades.</p>
+          <a class="botao" href="/biblioteca">Explorar a biblioteca</a>
+        </div>`,
+    },
+    comFoto.length && {
+      nome: 'Quem lê', classe: 'lamina--pessoas',
+      corpo: html`<ul class="lamina__pessoas">${comFoto.map((p) => html`<li>${retrato(p)}<span>${p.nome}</span></li>`)}</ul>
+        <div class="lamina__texto">
+          <p class="lamina__chapeu">Quem inspira, o que lê</p>
+          <h2 class="lamina__titulo">Os livros por trás de quem faz cultura e política</h2>
+          <p class="lamina__resumo">Cada ligação diz de onde vem: uma indicação, uma entrevista ou uma escolha nossa.</p>
+          <a class="botao botao--claro" href="/personalidades">Ver quem lê</a>
+        </div>`,
+    },
+    {
+      nome: 'Trilhas', classe: 'lamina--trilha', cor: trilha.cor,
+      corpo: html`<ul class="lamina__capas" aria-hidden="true">${trilha.etapas.slice(0, 4).map((e) => html`<li>${capa(livroPorSlug.get(e.livro), { classe: 'capa--mini' })}</li>`)}</ul>
+        <div class="lamina__texto">
+          <p class="lamina__chapeu">Trilha · ${trilha.etapas.length} etapas · ${faixaNivel(trilha)}</p>
+          <h2 class="lamina__titulo">${trilha.pergunta}</h2>
+          <p class="lamina__resumo">${trilha.objetivo}</p>
+          <a class="botao botao--claro" href="/trilhas/${trilha.slug}">Seguir esta trilha</a>
+        </div>`,
+    },
+    {
+      nome: 'Biblioteca', classe: 'lamina--livros',
+      corpo: html`<ul class="lamina__capas lamina__capas--grandes" aria-hidden="true">${capasOriginais.map((l) => html`<li>${capa(l)}</li>`)}</ul>
+        <div class="lamina__texto">
+          <p class="lamina__chapeu">Biblioteca · ${livros.length} livros</p>
+          <h2 class="lamina__titulo">Primeiras edições, clássicos e obras esquecidas</h2>
+          <p class="lamina__resumo">Quando a primeira edição está em domínio público, você vê a capa original.</p>
+          <a class="botao" href="/biblioteca">Ver todos os livros</a>
+        </div>`,
+    },
+    {
+      nome: 'Acesso gratuito', classe: 'lamina--foto lamina--gratis',
+      corpo: html`<img class="lamina__fundo" src="${fotos.gabinete.img}" width="${fotos.gabinete.w}" height="${fotos.gabinete.h}" alt="${fotos.gabinete.alt}" loading="lazy" decoding="async">
+        <p class="lamina__legenda">${fotos.gabinete.legenda}</p>
+        <div class="lamina__texto">
+          <p class="lamina__chapeu">Acesso gratuito e sebos</p>
+          <h2 class="lamina__titulo">${gratis.length} livros para ler de graça, e legalmente</h2>
+          <p class="lamina__resumo">Obras em domínio público com texto integral no Wikisource. Para as outras, cada ficha leva a buscas em sebos.</p>
+          <a class="botao" href="/biblioteca?gratis=1">Ler de graça</a>
+        </div>`,
+    },
+  ].filter(Boolean);
+  return html`<section class="carrossel" aria-roledescription="carrossel" aria-label="Destaques da Marginália" data-carrossel>
+  <div class="carrossel__trilho" data-trilho aria-live="polite">
+    ${laminas.map((l, i) => html`<div class="lamina ${l.classe}" role="group" aria-roledescription="lâmina" aria-label="${i + 1} de ${laminas.length}: ${l.nome}"${l.cor ? html` data-cor="${l.cor}"` : ''} data-lamina>${l.corpo}</div>`)}
+  </div>
+  <div class="carrossel__controles">
+    <div class="carrossel__pontos">
+      ${laminas.map((l, i) => html`<button type="button" class="carrossel__ponto" data-ir="${i}" aria-label="Mostrar ${i + 1} de ${laminas.length}: ${l.nome}"${i === 0 ? raw(' aria-current="true"') : ''}><span></span></button>`)}
+    </div>
+    <button type="button" class="carrossel__pausa" data-pausa aria-label="Pausar a passagem automática" hidden>
+      <svg class="icone icone--pausa" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 5h3v14H7zM14 5h3v14h-3z" fill="currentColor"/></svg>
+      <svg class="icone icone--tocar" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+    </button>
+  </div>
+</section>
+
+<form class="busca-rapida" method="get" action="/biblioteca" role="search">
+  <label class="sr" for="q-home">Buscar na biblioteca</label>
+  <input id="q-home" name="q" type="search" placeholder="Buscar livro, autor ou tema" autocomplete="off" maxlength="80" enterkeyhint="search">
+  <button class="botao" type="submit">Buscar</button>
+</form>`;
+}
+
+// Leitura gratuita (só no celular).
+function leiaDeGraca() {
+  const gratis = livros.filter((l) => l.gratis);
+  return html`<section class="gratis-home" aria-labelledby="gratis-titulo">
+  <h2 id="gratis-titulo">Leia de graça</h2>
+  <p>${gratis.length} livros em domínio público, com texto integral no Wikisource. Para os outros, cada ficha mostra onde achar usado em sebos.</p>
+  <ul class="gratis-home__lista">
+    ${gratis.slice(0, 4).map((l) => html`<li><a href="/livros/${l.slug}">${capa(l, { classe: 'capa--mini' })}<span class="gratis-home__titulo">${l.titulo}</span><span class="gratis-home__autor">${nomesAutores(l)}, ${l.ano}</span></a></li>`)}
+  </ul>
+  <a class="botao botao--contorno" href="/biblioteca?gratis=1">Ver os ${gratis.length} livros grátis</a>
+</section>`;
+}
+
+export function home({ inspira = '', pessoas = [] } = {}) {
   const veias = livroPorSlug.get('as-veias-abertas-da-america-latina');
   const graciliano = autorPorSlug.get('graciliano-ramos');
 
   return html`
+${carrossel(pessoas)}
 <section class="capa-home" aria-labelledby="manchete">
   <div class="capa-home__foto">
     ${foto(fotos.carolinaAssinando, { carregar: 'eager', prioridade: true, classe: 'foto--intervencao' })}
@@ -35,7 +133,9 @@ export function home({ inspira = '' } = {}) {
 <section class="comeco" aria-labelledby="comeco-titulo">
   <div class="comeco__intro" data-reveal>
     <h2 id="comeco-titulo">Por onde começar?</h2>
-    <p>Escolha uma pergunta. Cada trilha responde com livros em sequência, do mais acessível ao mais denso.</p>
+    <p>Você não precisa conhecer tudo para começar a aprender. Escolha um assunto e descubra um caminho de leitura feito para o seu momento.</p>
+    <p class="comeco__acoes"><a class="botao botao--claro" href="/comecar">Encontrar meu caminho</a></p>
+    <p>Ou escolha uma pergunta: cada trilha responde com livros em sequência, do mais acessível ao mais denso.</p>
   </div>
   <div class="comeco__perguntas">
     ${trilhas.map((t, i) => html`
@@ -46,7 +146,7 @@ export function home({ inspira = '' } = {}) {
         <ol class="pergunta__etapas">
           ${t.etapas.map((e) => {
             const l = livroPorSlug.get(e.livro);
-            return html`<li><a href="/livros/${l.slug}">${capa(l, { classe: 'capa--mini' })}<span>${l.titulo}</span></a></li>`;
+            return html`<li><a href="/livros/${l.slug}">${capa(l, { classe: 'capa--mini' })}<span class="pergunta__livro">${l.titulo}</span></a></li>`;
           })}
         </ol>
         <a class="botao botao--claro" href="/trilhas/${t.slug}">Seguir a trilha “${t.titulo}”</a>
@@ -70,6 +170,8 @@ ${inspira}
   </ul>
   <p class="mesa__mais"><a class="link-forte" href="/biblioteca">Ver a biblioteca inteira</a></p>
 </section>
+
+${leiaDeGraca()}
 
 <section class="trecho" aria-labelledby="trecho-titulo">
   <div class="trecho__margem" data-reveal>

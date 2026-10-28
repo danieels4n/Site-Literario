@@ -1,4 +1,4 @@
-import { html } from '../lib/html.js';
+import { html, raw } from '../lib/html.js';
 import { livros, TEMAS, NIVEIS, PERIODOS, autorPorSlug } from '../content/catalog.js';
 import { itemLivro } from './parts.js';
 
@@ -11,6 +11,7 @@ export function lerFiltros(params, pessoas = {}) {
     nivel: params.get('nivel') || '',
     periodo: params.get('periodo') || '',
     pessoa: params.get('pessoa') || '',
+    gratis: params.get('gratis') === '1' ? '1' : '',
   };
   if (!pessoas[f.pessoa]) f.pessoa = '';
   if (!TEMAS[f.tema]) f.tema = '';
@@ -19,12 +20,14 @@ export function lerFiltros(params, pessoas = {}) {
   return f;
 }
 
-export function filtrar(f, permitidos = null) {
+export function filtrar(f, permitidos = null, indisponiveis = new Set()) {
   const termos = normalizar(f.q).split(/\s+/).filter(Boolean);
-  return livros.filter((l) => {
+  // Links grátis marcados como indisponíveis pela curadoria não contam como leitura grátis.
+  return livros.map((l) => (l.gratis && indisponiveis.has(l.slug) ? { ...l, gratis: undefined } : l)).filter((l) => {
     if (f.tema && !l.temas.includes(f.tema)) return false;
     if (f.nivel && l.nivel !== f.nivel) return false;
     if (f.periodo && l.periodo !== f.periodo) return false;
+    if (f.gratis && !l.gratis) return false;
     if (permitidos && !permitidos.has(l.slug)) return false;
     if (!termos.length) return true;
     const alvo = normalizar([
@@ -39,7 +42,7 @@ export function filtrar(f, permitidos = null) {
 function url(f, mudanca) {
   const p = new URLSearchParams();
   const n = { ...f, ...mudanca };
-  for (const k of ['q', 'tema', 'nivel', 'periodo', 'pessoa']) if (n[k]) p.set(k, n[k]);
+  for (const k of ['q', 'tema', 'nivel', 'periodo', 'pessoa', 'gratis']) if (n[k]) p.set(k, n[k]);
   const s = p.toString();
   return '/biblioteca' + (s ? '?' + s : '');
 }
@@ -54,36 +57,59 @@ function grupo(nome, legenda, opcoes, atual) {
   </fieldset>`;
 }
 
-export function biblioteca({ filtros, estante = {}, pessoas = {}, permitidos = null }) {
-  const resultado = filtrar(filtros, permitidos);
+export function biblioteca({ filtros, estante = {}, pessoas = {}, permitidos = null, indisponiveis = new Set() }) {
+  const resultado = filtrar(filtros, permitidos, indisponiveis);
   const ativos = [
     filtros.q && { rotulo: `“${filtros.q}”`, remover: url(filtros, { q: '' }) },
     filtros.tema && { rotulo: TEMAS[filtros.tema], remover: url(filtros, { tema: '' }) },
     filtros.nivel && { rotulo: NIVEIS[filtros.nivel], remover: url(filtros, { nivel: '' }) },
     filtros.periodo && { rotulo: PERIODOS[filtros.periodo], remover: url(filtros, { periodo: '' }) },
     filtros.pessoa && { rotulo: `Ligados a ${pessoas[filtros.pessoa]}`, remover: url(filtros, { pessoa: '' }) },
+    filtros.gratis && { rotulo: 'Leitura grátis', remover: url(filtros, { gratis: '' }) },
   ].filter(Boolean);
   const contagem = resultado.length === 1 ? '1 livro' : `${resultado.length} livros`;
+  const nFiltros = [filtros.tema, filtros.nivel, filtros.periodo, filtros.pessoa, filtros.gratis].filter(Boolean).length;
 
   return html`
 <section class="cabeca-pagina cabeca-pagina--biblioteca" aria-labelledby="titulo-biblioteca">
-  <p class="cabeca-pagina__margem">Literatura, história e pensamento político. Busque por título, autor ou tema, ou filtre pelas etiquetas.</p>
+  <p class="cabeca-pagina__margem">Literatura, história e pensamento político. Busque por título, autor ou tema, ou filtre pelas etiquetas. Não sabe por onde começar? <a href="/comecar">Monte um percurso de leitura</a>.</p>
   <h1 id="titulo-biblioteca" class="titulo-pagina">Biblioteca</h1>
 </section>
+
+<nav class="disponibilidade" aria-label="Disponibilidade">
+  <a class="etiqueta${!filtros.gratis ? ' etiqueta--ativa' : ''}" href="${url(filtros, { gratis: '' })}"${!filtros.gratis ? raw(' aria-current="true"') : ''}>Todos</a>
+  <a class="etiqueta${filtros.gratis ? ' etiqueta--ativa' : ''}" href="${url(filtros, { gratis: '1' })}"${filtros.gratis ? raw(' aria-current="true"') : ''}>Leitura grátis</a>
+</nav>
 
 <form class="busca" method="get" action="/biblioteca" role="search" data-busca>
   <div class="busca__campo">
     <label for="q">Buscar na biblioteca</label>
     <div class="busca__linha">
-      <input id="q" name="q" type="search" value="${filtros.q}" placeholder="Ex.: Carolina, favela, Freire" autocomplete="off" maxlength="80">
+      <input id="q" name="q" type="search" value="${filtros.q}" placeholder="Ex.: Carolina, favela, Freire" autocomplete="off" maxlength="80" enterkeyhint="search">
       <button class="botao" type="submit">Buscar</button>
     </div>
   </div>
-  <div class="busca__filtros">
+  <button class="busca__alternar" type="button" aria-expanded="true" aria-controls="filtros-biblioteca" data-alternar-filtros>Filtros<span class="busca__nfiltros" data-nfiltros>${nFiltros ? ` · ${nFiltros} ${nFiltros === 1 ? 'ativo' : 'ativos'}` : ''}</span></button>
+  <div class="busca__filtros" id="filtros-biblioteca">
+    <div class="busca__folha-topo">
+      <p class="busca__folha-titulo">Filtros</p>
+      <button class="busca__fechar" type="button" data-fechar-filtros aria-label="Fechar filtros"><span aria-hidden="true">×</span></button>
+    </div>
+    <fieldset class="filtro filtro--celular">
+      <legend>Disponibilidade</legend>
+      <div class="filtro__opcoes">
+        <label class="etiqueta-opcao"><input type="radio" name="gratis" value=""${!filtros.gratis ? ' checked' : ''}><span>Todos</span></label>
+        <label class="etiqueta-opcao"><input type="radio" name="gratis" value="1"${filtros.gratis ? ' checked' : ''}><span>Leitura grátis</span></label>
+      </div>
+    </fieldset>
     ${grupo('tema', 'Tema', TEMAS, filtros.tema)}
     ${grupo('nivel', 'Nível', NIVEIS, filtros.nivel)}
     ${grupo('periodo', 'Período', PERIODOS, filtros.periodo)}
     ${Object.keys(pessoas).length ? grupo('pessoa', 'Quem inspira, o que lê', pessoas, filtros.pessoa) : ''}
+    <div class="busca__folha-rodape">
+      <a class="botao botao--contorno busca__limpar" href="${url({ q: filtros.q }, {})}">Limpar</a>
+      <button class="botao busca__mostrar" type="button" data-mostrar-resultados>Mostrar ${contagem}</button>
+    </div>
   </div>
 </form>
 

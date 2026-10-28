@@ -43,7 +43,7 @@ export function cadastro({ valores = {}, erros = {}, volta = '' }) {
   );
 }
 
-export function estantePagina({ usuario, estante }) {
+export function estantePagina({ usuario, estante, percursos = '' }) {
   const itens = Object.entries(estante)
     .map(([slug, e]) => ({ livro: livroPorSlug.get(slug), e }))
     .filter((x) => x.livro)
@@ -66,12 +66,13 @@ export function estantePagina({ usuario, estante }) {
   <p class="cabeca-pagina__margem">Ficha de ${usuario.nome}. ${lidos.length} ${lidos.length === 1 ? 'livro lido' : 'livros lidos'}, ${lendo.length} em leitura, ${asteriscos.length} com asterisco.</p>
   <h1 id="titulo-estante" class="titulo-pagina">Minha estante</h1>
 </section>
+${percursos}
 
 ${!itens.length
   ? html`<div class="vazio vazio--grande">
       <p class="vazio__titulo">Sua estante ainda está vazia.</p>
-      <p>Abra a página de um livro e marque com <span class="ast">*</span> ou registre sua leitura. Se não sabe por onde começar, escolha uma pergunta nas trilhas.</p>
-      <p class="acoes"><a class="botao" href="/trilhas">Ver as trilhas</a> <a class="link-forte" href="/biblioteca">Explorar a biblioteca</a></p>
+      <p>Abra a página de um livro e marque com <span class="ast">*</span> ou registre sua leitura. Se não sabe por onde começar, monte um percurso de leitura ou escolha uma pergunta nas trilhas.</p>
+      <p class="acoes"><a class="botao" href="/comecar">Por onde começar?</a> <a class="link-forte" href="/trilhas">Ver as trilhas</a> <a class="link-forte" href="/biblioteca">Explorar a biblioteca</a></p>
     </div>`
   : html`
     ${lendo.length

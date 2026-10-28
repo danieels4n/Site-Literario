@@ -9,6 +9,18 @@
     requestAnimationFrame(() => (el.textContent = msg));
   };
   const semMovimento = matchMedia('(prefers-reduced-motion: reduce)');
+  const celular = matchMedia('(max-width: 760px)');
+  const compacto = matchMedia('(max-width: 980px)');
+  // Camadas de tela cheia no celular: trava a rolagem do fundo e mantém o Tab dentro da camada.
+  const travar = (sim) => document.documentElement.classList.toggle('travado', sim);
+  const prenderFoco = (camada, ativo) => camada.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab' || !ativo()) return;
+    const f = $$('a[href], button:not([disabled]), input:not([disabled]), [tabindex="0"]', camada).filter((el) => el.getClientRects().length);
+    if (!f.length) return;
+    const [primeiro, ultimo] = [f[0], f[f.length - 1]];
+    if (e.shiftKey && document.activeElement === primeiro) { e.preventDefault(); ultimo.focus(); }
+    else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primeiro.focus(); }
+  });
 
   // ---------- Menu no celular ----------
   function iniciarMenu() {
@@ -18,14 +30,19 @@
     const fechar = (focar) => {
       botao.setAttribute('aria-expanded', 'false');
       nav.classList.remove('aberto');
+      travar(false);
       if (focar) botao.focus();
     };
     botao.addEventListener('click', () => {
       const abrir = botao.getAttribute('aria-expanded') !== 'true';
       botao.setAttribute('aria-expanded', String(abrir));
       nav.classList.toggle('aberto', abrir);
-      if (abrir) $('a', nav)?.focus();
+      travar(abrir && celular.matches);
+      if (abrir) $('.topo__links a', nav)?.focus();
     });
+    $('[data-fechar-menu]', nav)?.addEventListener('click', () => fechar(true));
+    prenderFoco(nav, () => celular.matches && nav.classList.contains('aberto'));
+    celular.addEventListener('change', () => { if (nav.classList.contains('aberto')) travar(celular.matches); });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && nav.classList.contains('aberto')) fechar(true);
     });
@@ -77,7 +94,10 @@
           area.replaceWith(novo);
           novo.querySelectorAll('[data-reveal]').forEach((el) => el.classList.add('visto'));
           history.replaceState(null, '', url);
+          const chips = $('.disponibilidade', doc);
+          if (chips) $('.disponibilidade')?.replaceWith(chips);
           anunciar($('[data-contagem]', novo)?.textContent || '');
+          document.dispatchEvent(new CustomEvent('marginalia:resultados', { detail: { contagem: $('[data-contagem]', novo)?.textContent || '' } }));
         }
       } catch (erro) {
         if (erro.name !== 'AbortError') {
@@ -211,10 +231,178 @@
   iniciarErros();
   iniciarPerguntas();
 
-  // Filtros recolhíveis: abertos no desktop, fechados no celular (sem JS ficam abertos).
-  if (matchMedia('(max-width: 760px)').matches) {
-    $$('[data-abrir-desktop]').forEach((d) => {
-      if (!d.querySelector('[aria-current]:not([href="/personalidades"])')) d.open = false;
+  // ---------- Celular: só age em telas estreitas; no desktop nada disto roda ----------
+
+  // Filtros da biblioteca em painel recolhível
+  (function filtrosRecolhiveis() {
+    const form = $('[data-busca]');
+    const alternar = $('[data-alternar-filtros]');
+    const mostrar = $('[data-mostrar-resultados]');
+    if (!form || !alternar) return;
+    const folha = $('#filtros-biblioteca');
+    const abrir = (aberto) => {
+      form.classList.toggle('busca--fechada', !aberto);
+      alternar.setAttribute('aria-expanded', String(aberto));
+      travar(aberto && celular.matches);
+    };
+    const fecharFolha = () => { abrir(false); alternar.focus({ preventScroll: true }); };
+    $('[data-fechar-filtros]', form)?.addEventListener('click', fecharFolha);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && celular.matches && alternar.getAttribute('aria-expanded') === 'true') fecharFolha();
     });
-  }
+    if (folha) prenderFoco(folha, () => celular.matches && alternar.getAttribute('aria-expanded') === 'true');
+    const contarFiltros = () => $$('.busca__filtros input[type="radio"]:checked', form).filter((i) => i.value).length;
+    const atualizarRotulo = () => {
+      const n = contarFiltros();
+      const alvo = $('[data-nfiltros]', alternar);
+      if (alvo) alvo.textContent = n ? ` · ${n} ${n === 1 ? 'ativo' : 'ativos'}` : '';
+    };
+    if (celular.matches) abrir(false);
+    celular.addEventListener('change', (e) => abrir(!e.matches));
+    alternar.addEventListener('click', () => {
+      const aberto = alternar.getAttribute('aria-expanded') !== 'true';
+      abrir(aberto);
+      if (aberto && celular.matches) $('[data-fechar-filtros]', form)?.focus();
+    });
+    form.addEventListener('change', atualizarRotulo);
+    document.addEventListener('marginalia:resultados', (e) => {
+      if (mostrar) mostrar.textContent = `Mostrar ${e.detail.contagem}`;
+    });
+    mostrar?.addEventListener('click', () => {
+      abrir(false);
+      alternar.focus({ preventScroll: true });
+      $('#resultados')?.scrollIntoView({ behavior: semMovimento.matches ? 'auto' : 'smooth', block: 'start' });
+    });
+  })();
+
+  // Atalho "Buscar" do cabeçalho: leva à biblioteca com o campo em foco
+  (function atalhoBusca() {
+    const focar = () => { if (compacto.matches && location.hash === '#q') $('#q')?.focus(); };
+    focar();
+    window.addEventListener('hashchange', focar);
+  })();
+
+  // Cabeçalho que some ao rolar para baixo e volta ao rolar para cima
+  (function cabecalhoCompacto() {
+    const topo = $('.topo');
+    if (!topo) return;
+    let ultimo = scrollY;
+    let pedido = false;
+    const menuAberto = () => $('.topo__menu')?.getAttribute('aria-expanded') === 'true';
+    const atualizar = () => {
+      pedido = false;
+      const y = scrollY;
+      if (!compacto.matches || menuAberto() || y < 120 || topo.contains(document.activeElement)) {
+        topo.classList.remove('topo--oculto');
+      } else if (y > ultimo + 6) {
+        topo.classList.add('topo--oculto');
+      } else if (y < ultimo - 6) {
+        topo.classList.remove('topo--oculto');
+      }
+      ultimo = y;
+    };
+    window.addEventListener('scroll', () => { if (!pedido) { pedido = true; requestAnimationFrame(atualizar); } }, { passive: true });
+    topo.addEventListener('focusin', () => topo.classList.remove('topo--oculto'));
+  })();
+
+  // Carrossel editorial da home (só no celular)
+  (function carrosselHome() {
+    const raiz = $('[data-carrossel]');
+    if (!raiz) return;
+    const trilho = $('[data-trilho]', raiz);
+    const laminas = $$('[data-lamina]', raiz);
+    const pontos = $$('[data-ir]', raiz);
+    const pausa = $('[data-pausa]', raiz);
+    const INTERVALO = 6000;
+    let atual = 0;
+    let relogio = null;
+    let parado = false; // pausado pelo botão
+    let tocando = false;
+    let focado = false;
+    let sobre = false;
+    let visivel = true;
+
+    const largura = () => trilho.clientWidth || 1;
+    // Carrega as imagens da lâmina seguinte só quando ela está para entrar.
+    const preparar = (i) => $$('img[loading="lazy"]', laminas[i] || raiz).forEach((img) => (img.loading = 'eager'));
+    const marcar = (i) => {
+      atual = i;
+      pontos.forEach((p, j) => p.setAttribute('aria-current', String(j === i)));
+      preparar((i + 1) % laminas.length);
+    };
+    let garantia;
+    const ir = (i) => {
+      preparar(i);
+      const alvo = i * largura();
+      trilho.scrollTo({ left: alvo, behavior: semMovimento.matches ? 'auto' : 'smooth' });
+      // Se a rolagem suave for interrompida ou não animar, posiciona direto.
+      clearTimeout(garantia);
+      garantia = setTimeout(() => { if (!tocando && Math.abs(trilho.scrollLeft - alvo) > 2) trilho.scrollLeft = alvo; }, 800);
+      marcar(i);
+    };
+    const automatico = () => celular.matches && !semMovimento.matches && !parado;
+    const agendar = () => {
+      clearTimeout(relogio);
+      relogio = null;
+      // Região viva só anuncia quando a troca não é automática.
+      trilho.setAttribute('aria-live', automatico() && !focado ? 'off' : 'polite');
+      if (!automatico() || tocando || focado || sobre || !visivel || document.hidden) return;
+      relogio = setTimeout(() => { ir((atual + 1) % laminas.length); agendar(); }, INTERVALO);
+    };
+    const atualizarPausa = () => {
+      pausa.hidden = semMovimento.matches;
+      pausa.setAttribute('aria-pressed', String(parado));
+      pausa.setAttribute('aria-label', parado ? 'Retomar a passagem automática' : 'Pausar a passagem automática');
+    };
+
+    let espera;
+    trilho.addEventListener('scroll', () => {
+      clearTimeout(espera);
+      espera = setTimeout(() => {
+        const i = Math.min(laminas.length - 1, Math.max(0, Math.round(trilho.scrollLeft / largura())));
+        if (i !== atual) marcar(i);
+      }, 90);
+    }, { passive: true });
+    pontos.forEach((p) => p.addEventListener('click', () => { ir(Number(p.dataset.ir)); agendar(); }));
+    pausa.addEventListener('click', () => { parado = !parado; atualizarPausa(); agendar(); });
+    trilho.addEventListener('pointerdown', () => { tocando = true; agendar(); });
+    window.addEventListener('pointerup', () => { if (tocando) { tocando = false; agendar(); } });
+    window.addEventListener('pointercancel', () => { if (tocando) { tocando = false; agendar(); } });
+    raiz.addEventListener('mouseenter', () => { sobre = true; agendar(); });
+    raiz.addEventListener('mouseleave', () => { sobre = false; agendar(); });
+    raiz.addEventListener('focusin', (e) => {
+      focado = true;
+      const l = e.target.closest('[data-lamina]');
+      if (l) { const i = laminas.indexOf(l); if (i !== atual) ir(i); }
+      agendar();
+    });
+    raiz.addEventListener('focusout', (e) => { if (!raiz.contains(e.relatedTarget)) { focado = false; agendar(); } });
+    raiz.addEventListener('keydown', (e) => {
+      if (!e.target.closest('.carrossel__pontos')) return;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const i = (atual + (e.key === 'ArrowRight' ? 1 : laminas.length - 1)) % laminas.length;
+        ir(i);
+        pontos[i].focus();
+      }
+    });
+    document.addEventListener('visibilitychange', agendar);
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(([e]) => { visivel = e.isIntersecting; agendar(); }, { threshold: 0.4 }).observe(raiz);
+    }
+    window.addEventListener('resize', () => trilho.scrollTo({ left: atual * largura(), behavior: 'auto' }));
+    semMovimento.addEventListener('change', () => { atualizarPausa(); agendar(); });
+    celular.addEventListener('change', agendar);
+    atualizarPausa();
+    agendar();
+  })();
+
+  // Eixos das personalidades: no celular ficam abertos, numa linha que rola na horizontal,
+  // com o eixo escolhido à vista.
+  (function eixoAVista() {
+    const a = $('.filtro-eixos [aria-current]');
+    const lista = a?.closest('ul');
+    if (!celular.matches || !lista) return;
+    lista.scrollLeft = a.offsetLeft - (lista.clientWidth - a.offsetWidth) / 2;
+  })();
 })();

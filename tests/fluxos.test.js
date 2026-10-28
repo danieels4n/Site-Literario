@@ -311,8 +311,11 @@ test('indicações de Jones Manoel para 2026, com link no minuto do vídeo', asy
 test('menu: ordem nova, Sobre nós no lugar de Conceitos e Admin escondido', async () => {
   const home = await (await get('/')).text();
   const menu = /<ul class="topo__links">([\s\S]*?)<\/ul>/.exec(home)[1];
-  const itens = [...menu.matchAll(/>([^<]+)<\/a>/g)].map((m) => m[1]);
+  // Itens marcados so-celular (Início, Conceitos) só aparecem no menu do celular.
+  const itens = [...menu.matchAll(/<li>\s*<a[^>]*>([^<]+)<\/a>/g)].map((m) => m[1]);
   assert.deepEqual(itens, ['Biblioteca', 'Trilhas', 'Autores', 'Quem lê', 'Sobre nós']);
+  const soCelular = [...menu.matchAll(/<li class="so-celular"><a[^>]*>([^<]+)<\/a>/g)].map((m) => m[1]);
+  assert.deepEqual(soCelular, ['Início', 'Conceitos']);
   assert.match(home, /class="rodape__links"[\s\S]*href="\/conceitos"/);
   assert.doesNotMatch(home, /Área administrativa/);
 
@@ -340,4 +343,214 @@ test('toda trilha começa no introdutório e nunca volta de nível', async () =>
     assert.match(pagina, /Introdutório →|Introdutório ·/);
   }
   assert.match(await (await get('/livros/recordacoes-do-escrivao-isaias-caminha')).text(), /Ler grátis no Wikisource/);
+});
+
+test('biblioteca: filtro de leitura grátis', async () => {
+  const { livros } = await import('../content/catalog.js');
+  const gratis = livros.filter((l) => l.gratis);
+  const pg = await (await get('/biblioteca?gratis=1')).text();
+  assert.match(pg, new RegExp(`data-contagem>${gratis.length} livros<`));
+  for (const l of gratis) assert.ok(pg.includes(`/livros/${l.slug}`), l.slug);
+  const naoGratis = livros.find((l) => !l.gratis);
+  assert.ok(!pg.includes(`href="/livros/${naoGratis.slug}"`));
+  assert.match(pg, /Remover filtro Leitura grátis/);
+  assert.match(pg, /<a class="etiqueta etiqueta--ativa" href="\/biblioteca\?gratis=1" aria-current="true">Leitura grátis<\/a>/);
+});
+
+test('celular: barra de atalhos com páginas reais e ícones acessíveis', async () => {
+  const home = await (await get('/trilhas')).text();
+  const barra = /<nav class="barra" aria-label="Atalhos">([\s\S]*?)<\/nav>/.exec(home)[1];
+  const links = [...barra.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(links, ['/', '/biblioteca', '/trilhas', '/autores', '/personalidades']);
+  assert.match(barra, /href="\/trilhas" aria-current="page"/);
+  for (const href of links) assert.equal((await get(href)).status, 200, href);
+  assert.match(home, /class="topo__buscar" href="\/biblioteca#q" aria-label="Buscar na biblioteca"/);
+  assert.match(home, /<button class="topo__fechar" type="button" data-fechar-menu aria-label="Fechar menu">/);
+});
+// ---------- Por onde começar? ----------
+async function contaDe(email, senha, nome = 'Pessoa Teste') {
+  const c = cookieDe(await post('/cadastro', { nome, email, senha }));
+  return c || cookieDe(await post('/entrar', { email, senha }));
+}
+
+test('começar: questionário em três passos, sem conta e sem JavaScript', async () => {
+  const abertura = await (await get('/comecar')).text();
+  assert.match(abertura, /<h1[^>]*>Por onde começar\?<\/h1>/);
+  assert.match(abertura, /href="\/comecar\?passo=temas">Encontrar meu caminho/);
+  assert.match(abertura, /href="\/biblioteca">Explorar todos os temas/);
+
+  const temas = await (await get('/comecar?passo=temas')).text();
+  assert.match(temas, /aria-current="step"><span aria-hidden="true">1<\/span> Temas/);
+  assert.match(temas, /type="checkbox" name="tema" value="raca-e-racismo"/);
+  assert.match(temas, /value="nao-sei"/);
+
+  // Avançar sem tema: volta ao passo 1 com mensagem, sem tela quebrada
+  const semTema = await get('/comecar?passo=nivel');
+  assert.equal(semTema.status, 400);
+  assert.match(await semTema.text(), /role="alert">Escolha pelo menos um assunto/);
+
+  // Passo 2 guarda os temas e permite voltar sem perder respostas
+  const nivel = await (await get('/comecar?passo=nivel&tema=raca-e-racismo&tema=cidade-e-pobreza')).text();
+  assert.match(nivel, /<input type="hidden" name="tema" value="raca-e-racismo">/);
+  assert.match(nivel, /Raça e racismo e Cidade e pobreza/);
+  assert.match(nivel, /href="\/comecar\?tema=raca-e-racismo&amp;tema=cidade-e-pobreza&amp;passo=temas">Voltar/);
+  const voltou = await (await get('/comecar?tema=raca-e-racismo&passo=temas')).text();
+  assert.match(voltou, /value="raca-e-racismo" checked/);
+
+  // Pular o nível e o ritmo leva direto ao percurso
+  const pulouNivel = await (await get('/comecar?passo=tempo&tema=educacao&pular=nivel&nivel=basico')).text();
+  assert.doesNotMatch(pulouNivel, /name="nivel" value="basico"/);
+  const pulouTempo = await get('/comecar?tema=educacao&tempo=pouco&pular=tempo');
+  assert.equal(pulouTempo.status, 303);
+  assert.equal(pulouTempo.headers.get('location'), '/comecar/percurso?tema=educacao');
+
+  // Sem tema, o percurso manda para o passo 1
+  assert.equal((await get('/comecar/percurso')).headers.get('location'), '/comecar?passo=temas');
+});
+
+test('começar: percurso real, em etapas progressivas, com motivo e acesso', async () => {
+  const { livroPorSlug } = await import('../content/catalog.js');
+  const r = await get('/comecar/percurso?tema=raca-e-racismo&nivel=basico');
+  assert.equal(r.status, 200);
+  const pg = await r.text();
+  const etapas = [...pg.matchAll(/<span class="sr">Etapa (\d): <\/span>([^<]+)</g)].map((m) => m[2]);
+  assert.deepEqual(etapas, ['Comece por aqui', 'Entenda as ideias fundamentais', 'Conheça os autores e os debates', 'Aprofunde a leitura', 'Conecte com a realidade']);
+  // Só livros reais do acervo, e na ordem de nível
+  const livros = [...pg.matchAll(/<li class="reco" id="livro-([a-z0-9-]+)"/g)].map((m) => m[1]);
+  assert.ok(livros.length >= 4);
+  const ordem = { introdutorio: 0, intermediario: 1, aprofundado: 2 };
+  for (const s of livros) assert.ok(livroPorSlug.get(s)?.temas.includes('raca-e-racismo'), s);
+  const niveis = livros.map((s) => ordem[livroPorSlug.get(s).nivel]);
+  assert.deepEqual([...niveis].sort((a, b) => a - b), niveis);
+  assert.match(pg, /Por que nesta etapa:<\/strong>/);
+  assert.match(pg, /Antes de continuar/);
+  assert.match(pg, /href="\/conceitos\/[a-z-]+"/);
+  // Grátis só com fonte cadastrada; o resto, sebo ou biblioteca
+  assert.match(pg, /Grátis · domínio público · Wikisource/);
+  assert.match(pg, /href="https:\/\/pt\.wikisource\.org\/wiki\/%C3%9Arsula"/);
+  assert.match(pg, /Sebo, biblioteca ou compra/);
+  // Sem conta: percurso aberto, cadastro só como convite
+  assert.match(pg, /Não é obrigatório/);
+  assert.doesNotMatch(pg, /Salvar este percurso/);
+
+  // "Quero me aprofundar": sem leituras de entrada, só o vocabulário para relembrar
+  const fundo = await (await get('/comecar/percurso?tema=raca-e-racismo&nivel=aprofundar')).text();
+  assert.match(fundo, /Para relembrar/);
+  const entrada = /data-etapa="comece">([\s\S]*?)<\/li>\s*<li class="etapa-p"/.exec(fundo)?.[1] || '';
+  assert.doesNotMatch(entrada, /class="reco"/);
+
+  // Só leitura grátis: todos os cartões com link gratuito
+  const gratis = await (await get('/comecar/percurso?tema=literatura-brasileira&modo=gratis')).text();
+  const cartoes = [...gratis.matchAll(/<li class="reco"[\s\S]*?<\/li>\n  <\/ul>|<li class="reco"[\s\S]*?Tirar do percurso/g)];
+  assert.ok(cartoes.length > 0);
+  for (const c of cartoes) assert.match(c[0], /data-tipo="gratis"/);
+
+  // Tirar do percurso e trazer de volta
+  const sem = await (await get('/comecar/percurso?tema=raca-e-racismo&fora=quarto-de-despejo')).text();
+  assert.doesNotMatch(sem, /id="livro-quarto-de-despejo"/);
+  assert.match(sem, /Trazer de volta/);
+
+  // Ritmo "pouco tempo": no máximo uma leitura por etapa
+  const pouco = await (await get('/comecar/percurso?tema=literatura-brasileira&tempo=pouco')).text();
+  for (const m of pouco.matchAll(/<ul class="recos">([\s\S]*?)<\/ul>/g)) assert.ok((m[1].match(/class="reco"/g) || []).length <= 1);
+
+  // "Ainda não sei": seleção de entrada, sem obras densas
+  const naoSei = await (await get('/comecar/percurso?tema=nao-sei')).text();
+  assert.match(naoSei, /leituras de entrada/);
+  assert.doesNotMatch(naoSei, /data-etapa="aprofundar"/);
+});
+
+test('começar: tema com pouco acervo e filtro sem resultado não quebram', async () => {
+  const pouco = await (await get('/comecar/percurso?tema=educacao')).text();
+  assert.match(pouco, /Ainda não temos materiais suficientes para montar uma trilha completa/);
+  assert.match(pouco, /id="livro-pedagogia-do-oprimido"/);
+  const vazio = await get('/comecar/percurso?tema=rap-e-periferia&modo=gratis');
+  assert.equal(vazio.status, 200);
+  const v = await vazio.text();
+  // Sem obra grátis no tema: o filtro nem é oferecido, e o percurso continua visível
+  assert.doesNotMatch(v, /Só leitura grátis/);
+  assert.match(v, /Nenhuma leitura grátis para essa combinação|id="livro-sobrevivendo-no-inferno"/);
+});
+
+test('começar: salvar percurso, marcar leitura e privacidade', async () => {
+  const a = await contaDe('percurso-a@teste.test', 'senha-de-teste-a1');
+  const b = await contaDe('percurso-b@teste.test', 'senha-de-teste-b1');
+  const pg = await (await get('/comecar/percurso?tema=cidade-e-pobreza&nivel=basico', a)).text();
+  assert.match(pg, /Salvar este percurso/);
+
+  // Visitante não salva
+  const anon = await post('/comecar/salvar', { consulta: 'tema=cidade-e-pobreza' });
+  assert.equal(anon.headers.get('location'), '/entrar?volta=/comecar');
+
+  // Consulta adulterada é normalizada
+  const s = await post('/comecar/salvar', { consulta: 'tema=cidade-e-pobreza&nivel=basico&tema=<script>&fora=nao-existe' }, { cookie: a });
+  assert.equal(s.headers.get('location'), '/comecar/percurso?tema=cidade-e-pobreza&nivel=basico&salvo=1');
+  const salvo = await (await get('/comecar/percurso?tema=cidade-e-pobreza&nivel=basico', a)).text();
+  assert.match(salvo, /Percurso salvo na/);
+
+  // Marcar como lido a partir do percurso volta para o percurso
+  const lido = await post('/livros/quarto-de-despejo/leitura', { status: 'lido', volta: '/comecar/percurso?tema=cidade-e-pobreza&nivel=basico#livro-quarto-de-despejo' }, { cookie: a });
+  assert.equal(lido.headers.get('location'), '/comecar/percurso?tema=cidade-e-pobreza&nivel=basico#livro-quarto-de-despejo');
+  const externo = await post('/livros/quarto-de-despejo/leitura', { status: 'lido', volta: '//malicioso.example' }, { cookie: a });
+  assert.equal(externo.headers.get('location'), '/livros/quarto-de-despejo');
+
+  const estanteA = await (await get('/estante', a)).text();
+  assert.match(estanteA, /Seus percursos/);
+  assert.match(estanteA, /Por onde começar: Cidade e pobreza/);
+  assert.match(estanteA, /1 de \d+ leituras lidas/);
+  const id = /action="\/comecar\/percursos\/([a-zA-Z0-9-]+)\/remover"/.exec(estanteA)[1];
+
+  // Outra pessoa não vê nem remove
+  const estanteB = await (await get('/estante', b)).text();
+  assert.doesNotMatch(estanteB, /Seus percursos/);
+  await post(`/comecar/percursos/${id}/remover`, {}, { cookie: b });
+  assert.match(await (await get('/estante', a)).text(), /Seus percursos/);
+
+  // A dona remove
+  await post(`/comecar/percursos/${id}/remover`, {}, { cookie: a });
+  assert.doesNotMatch(await (await get('/estante', a)).text(), /Seus percursos/);
+});
+
+test('começar: painel editorial só para admin e ajustes aparecem no percurso', async () => {
+  const leitor = await contaDe('percurso-c@teste.test', 'senha-de-teste-c1');
+  assert.match((await get('/admin/percursos')).headers.get('location'), /^\/entrar/);
+  assert.equal((await get('/admin/percursos', leitor)).status, 403);
+  assert.equal((await post('/admin/percursos/educacao', { publicado: '1' }, { cookie: leitor })).status, 403);
+
+  const admin = await contaDe('editora@teste.test', 'senha-de-teste-5', 'Editora');
+  const painel = await (await get('/admin/percursos', admin)).text();
+  assert.match(painel, /Temas do questionário/);
+  assert.match(painel, /Links de leitura grátis/);
+
+  // Motivo editorial, ordem e retirada de um livro
+  const r = await post('/admin/percursos/cidade-e-pobreza', {
+    publicado: '1', descricao: 'Descrição revisada pela curadoria.',
+    'motivo:vidas-secas': 'Um romance curto e seco para começar.', 'ordem:vidas-secas': '1',
+    'etapa:o-cortico': 'fora',
+  }, { cookie: admin });
+  assert.equal(r.headers.get('location'), '/admin/percursos/cidade-e-pobreza?ok=tema');
+  const pg = await (await get('/comecar/percurso?tema=cidade-e-pobreza')).text();
+  assert.match(pg, /Nota da curadoria<\/span> Um romance curto e seco para começar\./);
+  assert.doesNotMatch(pg, /id="livro-o-cortico"/);
+  const primeiro = /<li class="reco" id="livro-([a-z0-9-]+)"/.exec(pg)[1];
+  assert.equal(primeiro, 'vidas-secas');
+  assert.match(await (await get('/comecar?passo=temas')).text(), /Descrição revisada pela curadoria\./);
+
+  // Tema despublicado sai do questionário
+  await post('/admin/percursos/rap-e-periferia', {}, { cookie: admin });
+  assert.doesNotMatch(await (await get('/comecar?passo=temas')).text(), /value="rap-e-periferia"/);
+  await post('/admin/percursos/rap-e-periferia', { publicado: '1' }, { cookie: admin });
+
+  // Link grátis marcado como indisponível some do livro, da biblioteca e do percurso
+  await post('/admin/acessos/ursula', { situacao: 'indisponivel' }, { cookie: admin });
+  assert.doesNotMatch(await (await get('/livros/ursula')).text(), /wikisource\.org\/wiki\/%C3%9Arsula/);
+  assert.doesNotMatch(await (await get('/biblioteca?gratis=1')).text(), /href="\/livros\/ursula"/);
+  assert.match(await (await get('/comecar/percurso?tema=raca-e-racismo')).text(), /Link grátis em revisão/);
+  await post('/admin/acessos/ursula', { situacao: 'ok' }, { cookie: admin });
+  assert.match(await (await get('/comecar/percurso?tema=raca-e-racismo')).text(), /link conferido em \d{2}\/\d{2}\/\d{4}/);
+});
+
+test('começar: entradas na home e na biblioteca', async () => {
+  assert.match(await (await get('/')).text(), /href="\/comecar">Encontrar meu caminho/);
+  assert.match(await (await get('/biblioteca')).text(), /href="\/comecar">Monte um percurso de leitura/);
 });

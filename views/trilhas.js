@@ -56,8 +56,19 @@ export function trilhaPagina({ trilha, usuario, estante = {} }) {
         ${barraProgresso(p.pct, 'Progresso nesta trilha')}
         ${proxima && p.lidos < p.total ? html`<p><a class="link-claro" href="/livros/${proxima.livro}">Continuar por ${livroPorSlug.get(proxima.livro).titulo}</a></p>` : ''}
       </div>`
-    : html`<p class="trilha-cabeca__convite"><a class="link-claro" href="/entrar?volta=/trilhas/${trilha.slug}">Entre</a> para acompanhar seu progresso nesta trilha.</p>`}
+    : html`<p class="trilha-cabeca__comece">Comece por <a class="link-claro" href="/livros/${trilha.etapas[0].livro}">${livroPorSlug.get(trilha.etapas[0].livro).titulo}</a>, a primeira etapa.</p>
+      <p class="trilha-cabeca__convite"><a class="link-claro" href="/entrar?volta=/trilhas/${trilha.slug}">Entre</a> para acompanhar seu progresso nesta trilha.</p>`}
 </header>
+
+<nav class="roteiro" aria-label="Roteiro da trilha">
+  <ol>
+    ${trilha.etapas.map((e, i) => {
+      const l = livroPorSlug.get(e.livro);
+      const st = estante[l.slug]?.status;
+      return html`<li class="roteiro__etapa${st === 'lido' ? ' roteiro__etapa--lida' : ''}"><a href="#etapa-${i + 1}"><span class="roteiro__numero" aria-hidden="true">${st === 'lido' ? '✓' : i + 1}</span><span class="roteiro__titulo"><span class="sr">Etapa ${i + 1}: </span>${l.titulo}</span><span class="roteiro__nivel">${NIVEIS[l.nivel]}${st ? ` · ${STATUS[st]}` : ''}</span></a></li>`;
+    })}
+  </ol>
+</nav>
 
 <section class="percurso" aria-labelledby="percurso-titulo">
   <h2 id="percurso-titulo" class="sr">Etapas da trilha</h2>
@@ -65,10 +76,11 @@ export function trilhaPagina({ trilha, usuario, estante = {} }) {
     ${trilha.etapas.map((e, i) => {
       const l = livroPorSlug.get(e.livro);
       const st = estante[l.slug]?.status;
-      return html`<li class="etapa${st === 'lido' ? ' etapa--lida' : ''}" data-reveal>
+      return html`<li class="etapa${st === 'lido' ? ' etapa--lida' : ''}" id="etapa-${i + 1}" data-reveal>
         <span class="etapa__numero" aria-hidden="true">${i + 1}</span>
         <a class="etapa__capa" href="/livros/${l.slug}" tabindex="-1" aria-hidden="true">${capa(l, { classe: 'capa--media' })}</a>
         <div class="etapa__texto">
+          ${l.slug === (usuario ? proxima?.livro : trilha.etapas[0].livro) ? html`<span class="etapa__comece">${usuario && p.lidos ? 'Próxima leitura' : 'Comece aqui'}</span>` : ''}
           <h3 class="etapa__titulo"><span class="sr">Etapa ${i + 1}: </span><a href="/livros/${l.slug}">${l.titulo}</a></h3>
           <p class="etapa__autor">${nomesAutores(l)} · ${l.ano} · <span class="etapa__nivel" data-nivel="${l.nivel}">${NIVEIS[l.nivel]}</span></p>
           <p class="etapa__objetivo">${e.objetivo}</p>

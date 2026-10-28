@@ -16,7 +16,7 @@ export function retrato(p, { classe = '', carregar = 'lazy', credito = false } =
   const r = p.retrato;
   return html`<figure class="retrato ${classe}">
     <img src="${r.img}" width="${r.w}" height="${r.h}" alt="${r.alt}" loading="${carregar}" decoding="async" style="object-position:${r.pos || '50% 30%'}">
-    ${credito ? html`<figcaption class="retrato__credito">Foto: ${r.credito}, <a href="${r.url}" rel="noopener">${r.licenca}</a>, via Wikimedia Commons.</figcaption>` : ''}
+    ${credito ? html`<figcaption class="retrato__credito">Foto: ${r.credito}, ${r.url ? html`<a href="${r.url}" rel="noopener">${r.licenca}</a>` : r.licenca}, via ${r.via || 'Wikimedia Commons'}.</figcaption>` : ''}
   </figure>`;
 }
 

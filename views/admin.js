@@ -3,6 +3,7 @@ import { livros } from '../content/catalog.js';
 import { EIXOS, TIPOS_REFERENCIA, STATUS_PERSONALIDADE } from '../content/personalidades.js';
 import { resolverReferencia, dataLegivel } from '../lib/personalidades.js';
 import { avisoErros } from './parts.js';
+import { navAdmin } from './adminPercursos.js';
 
 const sel = (cond) => (cond ? raw(' selected') : '');
 const marc = (cond) => (cond ? raw(' checked') : '');
@@ -38,6 +39,7 @@ export function adminLista({ pessoas, erros = {}, valores = {} }) {
   <h1 id="titulo-admin" class="titulo-pagina titulo-pagina--medio">Personalidades</h1>
 </section>
 <div class="admin">
+  ${navAdmin('pessoas')}
   <table class="admin__tabela">
     <caption class="sr">Personalidades cadastradas</caption>
     <thead><tr><th scope="col">Nome</th><th scope="col">Situação</th><th scope="col">Referências publicadas</th><th scope="col">Em rascunho</th><th scope="col">Eixos</th><th scope="col"><span class="sr">Ações</span></th></tr></thead>

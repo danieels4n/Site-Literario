@@ -24,7 +24,10 @@ import {
 import { secaoHome, catalogo, pagina as paginaPessoa, blocoLivro } from './views/personalidades.js';
 import { adminLista, adminEditar } from './views/admin.js';
 import { sobre } from './views/sobre.js';
-import { livros as todosLivros } from './content/catalog.js';
+import { livros as todosLivros, TEMAS } from './content/catalog.js';
+import { lerEscolhas, consulta, montarPercurso, temasDisponiveis } from './lib/percurso.js';
+import { comecarAbertura, passoTemas, passoNivel, passoTempo, percursoPagina, percursosSalvos, nomeDosTemas } from './views/comecar.js';
+import { adminPercursos, adminPercursoTema } from './views/adminPercursos.js';
 
 const RAIZ = fileURLToPath(new URL('.', import.meta.url));
 const PUBLICO = join(RAIZ, 'public');
@@ -53,6 +56,7 @@ const TIPOS = {
   '.js': 'text/javascript; charset=utf-8',
   '.jpg': 'image/jpeg',
   '.png': 'image/png',
+  '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.woff2': 'font/woff2',
   '.ico': 'image/x-icon',
@@ -153,7 +157,7 @@ const rotas = [];
 const rota = (metodo, padrao, fn) => rotas.push({ metodo, padrao, fn });
 
 rota('GET', /^\/$/, (req, res, ctx) =>
-  pagina(res, req, ctx, { corpo: home({ inspira: secaoHome(personalidadesPublicas(db)) }), classe: 'pagina-home' })
+  pagina(res, req, ctx, { corpo: home({ inspira: secaoHome(personalidadesPublicas(db)), pessoas: personalidadesPublicas(db) }), classe: 'pagina-home' })
 );
 
 // Personalidades com ao menos um livro do catálogo ligado por referência publicada (para o filtro).
@@ -171,7 +175,7 @@ rota('GET', /^\/biblioteca$/, (req, res, ctx) => {
   pagina(res, req, ctx, {
     titulo: 'Biblioteca',
     descricao: 'Busque livros de literatura, história e pensamento político por título, autor, tema, nível, período ou personalidade.',
-    corpo: biblioteca({ filtros, estante, pessoas, permitidos }),
+    corpo: biblioteca({ filtros, estante, pessoas, permitidos, indisponiveis: indisponiveis() }),
     classe: 'pagina-biblioteca',
   });
 });
@@ -203,11 +207,76 @@ rota('GET', /^\/personalidades\/([a-z0-9-]+)$/, (req, res, ctx, [slug]) => {
 });
 
 rota('GET', /^\/livros\/([a-z0-9-]+)$/, (req, res, ctx, [slug]) => {
-  const livro = livroPorSlug.get(slug);
-  if (!livro) return naoAchou(req, res, ctx);
+  const original = livroPorSlug.get(slug);
+  if (!original) return naoAchou(req, res, ctx);
+  const livro = comAcesso(original);
   const estado = ctx.usuario ? db.estante(ctx.usuario.id)[slug] : null;
   const quemLe = blocoLivro(referenciasDoLivro(db, slug));
   pagina(res, req, ctx, { titulo: livro.titulo, descricao: livro.linha, corpo: livroPagina({ livro, usuario: ctx.usuario, estado, quemLe }), classe: 'pagina-livro' });
+});
+
+// Link grátis marcado como indisponível pela curadoria: some do site até ser revisto.
+const indisponiveis = () => new Set(Object.entries(db.acessos()).filter(([, a]) => a.situacao === 'indisponivel').map(([s]) => s));
+function comAcesso(livro) {
+  return livro.gratis && indisponiveis().has(livro.slug) ? { ...livro, gratis: undefined } : livro;
+}
+
+// ---------- Por onde começar? ----------
+const editorialAtual = () => ({ editorial: db.editorialTemas(), acessos: db.acessos() });
+
+rota('GET', /^\/comecar$/, (req, res, ctx) => {
+  const params = ctx.url.searchParams;
+  const e = lerEscolhas(params);
+  const pular = params.get('pular');
+  if (pular === 'nivel') e.nivel = '';
+  if (pular === 'tempo') return redirecionar(res, `/comecar/percurso?${consulta({ ...e, tempo: '' })}`);
+  let passo = params.get('passo') || '';
+  let erro = '';
+  if ((passo === 'nivel' || passo === 'tempo') && !e.temas.length) {
+    passo = 'temas';
+    erro = 'Escolha pelo menos um assunto, ou a opção “Ainda não sei exatamente o que procuro”.';
+  }
+  const temas = temasDisponiveis(db.editorialTemas());
+  const corpo = passo === 'temas' ? passoTemas({ e, temas, erro })
+    : passo === 'nivel' ? passoNivel({ e })
+    : passo === 'tempo' ? passoTempo({ e })
+    : comecarAbertura();
+  pagina(res, req, ctx, { titulo: 'Por onde começar?', descricao: 'Escolha um assunto e descubra um caminho de leitura feito para o seu momento.', corpo, classe: 'pagina-comecar', status: erro ? 400 : 200 });
+});
+
+rota('GET', /^\/comecar\/percurso$/, (req, res, ctx) => {
+  const e = lerEscolhas(ctx.url.searchParams);
+  if (!e.temas.length) return redirecionar(res, '/comecar?passo=temas');
+  // "Pular" no passo do ritmo descarta uma opção já marcada e limpa a URL.
+  if (ctx.url.searchParams.get('pular') === 'tempo') return redirecionar(res, `/comecar/percurso?${consulta({ ...e, tempo: '' })}`);
+  const p = montarPercurso(e, editorialAtual());
+  const refs = Object.fromEntries(p.livros.map((l) => [l.slug, referenciasDoLivro(db, l.slug)]));
+  const salvo = ctx.usuario ? db.percursosSalvos(ctx.usuario.id).find((s) => s.consulta === consulta({ ...e, outra: 0 })) : null;
+  const flash = ctx.url.searchParams.get('salvo') ? 'Percurso salvo. Ele fica na sua estante.' : '';
+  pagina(res, req, ctx, {
+    titulo: `Percurso: ${nomeDosTemas(p.naoSei ? ['nao-sei'] : p.temas)}`,
+    corpo: percursoPagina({ e, p, usuario: ctx.usuario, estante: ctx.usuario ? db.estante(ctx.usuario.id) : {}, refs, salvo }),
+    classe: 'pagina-comecar pagina-percurso',
+    flash,
+  });
+});
+
+rota('POST', /^\/comecar\/salvar$/, async (req, res, ctx) => {
+  if (!ctx.usuario) return redirecionar(res, '/entrar?volta=/comecar');
+  const corpo = await lerCorpo(req);
+  // A consulta é relida e normalizada: só temas, nível, ritmo, filtros e removidos válidos.
+  const e = lerEscolhas(new URLSearchParams(corpo.get('consulta') || ''));
+  if (!e.temas.length) return redirecionar(res, '/comecar?passo=temas');
+  const q = consulta({ ...e, outra: 0 });
+  const p = montarPercurso(e, editorialAtual());
+  await db.salvarPercurso(ctx.usuario.id, { consulta: q, titulo: `Por onde começar: ${nomeDosTemas(p.naoSei ? ['nao-sei'] : p.temas)}` });
+  redirecionar(res, `/comecar/percurso?${q}&salvo=1`);
+});
+
+rota('POST', /^\/comecar\/percursos\/([a-zA-Z0-9-]+)\/remover$/, async (req, res, ctx, [id]) => {
+  if (!ctx.usuario) return redirecionar(res, '/entrar?volta=/estante');
+  await db.removerPercurso(ctx.usuario.id, id);
+  redirecionar(res, '/estante#percursos');
 });
 
 function exigirLogin(req, res, ctx) {
@@ -241,7 +310,7 @@ rota('POST', /^\/livros\/([a-z0-9-]+)\/leitura$/, async (req, res, ctx, [slug]) 
   if (status !== 'lendo' && status !== 'lido') progresso = 0;
   const estado = await db.atualizarLivro(ctx.usuario.id, slug, { status, progresso });
   if (querJson(req)) return json(res, 200, { ok: true, estado });
-  redirecionar(res, `/livros/${slug}`);
+  redirecionar(res, voltaSegura(corpo.get('volta')) || `/livros/${slug}`);
 });
 
 rota('GET', /^\/trilhas$/, (req, res, ctx) => {
@@ -346,7 +415,12 @@ rota('POST', /^\/sair$/, async (req, res) => {
 rota('GET', /^\/estante$/, (req, res, ctx) => {
   if (!ctx.usuario) return redirecionar(res, '/entrar?volta=/estante');
   const flash = ctx.url.searchParams.get('bemvindo') ? `Conta criada. Boas-vindas, ${ctx.usuario.nome}!` : '';
-  pagina(res, req, ctx, { titulo: 'Minha estante', corpo: estantePagina({ usuario: ctx.usuario, estante: db.estante(ctx.usuario.id) }), classe: 'pagina-estante', flash });
+  const estante = db.estante(ctx.usuario.id);
+  const percursos = db.percursosSalvos(ctx.usuario.id).map((s) => {
+    const p = montarPercurso(lerEscolhas(new URLSearchParams(s.consulta)), editorialAtual());
+    return { ...s, href: `/comecar/percurso?${s.consulta}`, total: p.livros.length, lidos: p.livros.filter((l) => estante[l.slug]?.status === 'lido').length };
+  });
+  pagina(res, req, ctx, { titulo: 'Minha estante', corpo: estantePagina({ usuario: ctx.usuario, estante, percursos: percursosSalvos(percursos) }), classe: 'pagina-estante', flash });
 });
 
 // ---------- Área administrativa ----------
@@ -453,6 +527,52 @@ rota('POST', /^\/admin\/personalidades\/([a-z0-9-]+)\/referencias\/([a-zA-Z0-9-]
   const r = await db.alterarReferencia(slug, id, mudanca);
   if (!r) return naoAchou(req, res, ctx);
   redirecionar(res, `/admin/personalidades/${slug}?ok=${acao}#refs-titulo`);
+});
+
+// ---------- Admin: percursos e links de acesso ----------
+const AVISOS_PERCURSO = { tema: 'Tema salvo. O percurso já usa os ajustes.', acesso: 'Revisão do link registrada.' };
+
+rota('GET', /^\/admin\/percursos$/, (req, res, ctx) => {
+  if (!exigirAdmin(req, res, ctx)) return;
+  pagina(res, req, ctx, { titulo: 'Admin · Percursos', corpo: adminPercursos({ editorial: db.editorialTemas(), acessos: db.acessos(), aviso: AVISOS_PERCURSO[ctx.url.searchParams.get('ok')] || '' }), classe: 'pagina-admin' });
+});
+
+rota('GET', /^\/admin\/percursos\/([a-z0-9-]+)$/, (req, res, ctx, [tema]) => {
+  if (!exigirAdmin(req, res, ctx)) return;
+  if (!TEMAS[tema]) return naoAchou(req, res, ctx);
+  pagina(res, req, ctx, { titulo: `Admin · ${TEMAS[tema]}`, corpo: adminPercursoTema({ tema, editorial: db.editorialTemas(), aviso: AVISOS_PERCURSO[ctx.url.searchParams.get('ok')] || '' }), classe: 'pagina-admin' });
+});
+
+rota('POST', /^\/admin\/percursos\/([a-z0-9-]+)$/, async (req, res, ctx, [tema]) => {
+  if (!exigirAdmin(req, res, ctx)) return;
+  if (!TEMAS[tema]) return naoAchou(req, res, ctx);
+  const corpo = await lerCorpo(req, 128 * 1024);
+  const livrosDoTema = todosLivros.filter((l) => l.temas.includes(tema));
+  const ajustes = {};
+  for (const l of livrosDoTema) {
+    const etapa = corpo.get(`etapa:${l.slug}`) || '';
+    const ordem = Math.max(0, Math.min(99, Number.parseInt(corpo.get(`ordem:${l.slug}`), 10) || 0));
+    const motivo = (corpo.get(`motivo:${l.slug}`) || '').trim().replace(/\s+/g, ' ').slice(0, 400);
+    if (!['', 'comece', 'fundamentos', 'aprofundar', 'fora'].includes(etapa)) continue;
+    if (etapa || ordem || motivo) ajustes[l.slug] = { etapa, ordem, motivo };
+  }
+  await db.atualizarTemaEditorial(tema, {
+    publicado: corpo.get('publicado') === '1',
+    descricao: (corpo.get('descricao') || '').trim().replace(/\s+/g, ' ').slice(0, 220),
+    livros: ajustes,
+  });
+  redirecionar(res, `/admin/percursos/${tema}?ok=tema`);
+});
+
+rota('POST', /^\/admin\/acessos\/([a-z0-9-]+)$/, async (req, res, ctx, [slug]) => {
+  if (!exigirAdmin(req, res, ctx)) return;
+  const livro = livroPorSlug.get(slug);
+  if (!livro?.gratis) return naoAchou(req, res, ctx);
+  const corpo = await lerCorpo(req);
+  const situacao = corpo.get('situacao');
+  if (!['ok', 'indisponivel'].includes(situacao)) return enviar(res, 400, 'Situação inválida', { 'Content-Type': 'text/plain; charset=utf-8' });
+  await db.revisarAcesso(slug, situacao);
+  redirecionar(res, '/admin/percursos?ok=acesso#acessos-titulo');
 });
 
 function naoAchou(req, res, ctx) {
